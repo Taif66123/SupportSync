@@ -1,0 +1,24 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-supportsync}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-supportsync}
+      POSTGRES_DB: ${POSTGRES_DB:-supportsync}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-supportsync}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Redis joins in M3 (SSE pub/sub) / M4 (background tasks).
+  # Backend and frontend containers are packaged with Docker in M4;
+  # until then the backend runs locally via uvicorn (see README).
+
+volumes:
+  pgdata:

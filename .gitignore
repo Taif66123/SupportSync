@@ -1,0 +1,27 @@
+# Local env files (never commit secrets)
+.env
+backend/.env
+frontend/.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Databases / artifacts
+*.db
+*.sqlite3
+
+# Node (frontend, later)
+node_modules/
+dist/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
