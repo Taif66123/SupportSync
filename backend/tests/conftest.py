@@ -6,9 +6,11 @@ os.environ.setdefault("JWT_SECRET", "test-secret-key-for-pytest-only-0123456789a
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import event  # noqa: E402
 from sqlmodel import Session, SQLModel, create_engine  # noqa: E402
 
 import app.modules.auth.models  # noqa: F401,E402
+import app.modules.chat.models  # noqa: F401,E402
 import app.modules.tickets.models  # noqa: F401,E402
 import app.modules.users.models  # noqa: F401,E402
 from app.core.database import get_session  # noqa: E402
@@ -29,6 +31,18 @@ def engine():
         engine = create_engine(
             f"sqlite:///{tmpdir}/test.db", connect_args={"check_same_thread": False}
         )
+        # The pysqlite driver cannot emit SAVEPOINT unless it runs in SQLAlchemy's
+        # documented "serializable / savepoint" recipe (isolation_level=None plus an
+        # explicit BEGIN event hook). Without it, the rolled-back-transaction harness
+        # below degrades silently: any commit made mid-test (e.g. the WS chat handler's
+        # per-frame commit) persists for the rest of the run and poisons later tests.
+        @event.listens_for(engine, "connect")
+        def _sqlite_raw_isolation(dbapi_connection, _connection_record):
+            dbapi_connection.isolation_level = None
+
+        @event.listens_for(engine, "begin")
+        def _sqlite_explicit_begin(connection):
+            connection.exec_driver_sql("BEGIN")
     SQLModel.metadata.create_all(engine)
     yield engine
     engine.dispose()

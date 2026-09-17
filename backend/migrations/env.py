@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sqlmodel import SQLModel  # noqa: E402
 
 import app.modules.auth.models  # noqa: F401,E402
+import app.modules.chat.models  # noqa: F401,E402
 import app.modules.tickets.models  # noqa: F401,E402
 import app.modules.users.models  # noqa: F401,E402
 from app.core.config import get_settings  # noqa: E402

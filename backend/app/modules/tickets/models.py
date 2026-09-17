@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import Column, DateTime, Enum as SAEnum, String, Text
+from sqlalchemy import Column, DateTime, Enum as SAEnum, ForeignKey, Integer, String, Text
 from sqlmodel import Field, SQLModel
 
 from app.utils.time import utcnow
@@ -24,8 +24,10 @@ class Ticket(SQLModel, table=True):
     __tablename__ = "tickets"
 
     id: int | None = Field(default=None, primary_key=True)
-    customer_id: int = Field(foreign_key="users.id")
-    agent_id: int | None = Field(default=None, foreign_key="users.id")
+    # Declared explicitly (not Field(foreign_key=...)) so the indexes the 0001 migration
+    # created in the database also exist in the model — autogenerate must not drift.
+    customer_id: int = Field(sa_column=Column(Integer, ForeignKey("users.id"), nullable=False, index=True))
+    agent_id: int | None = Field(default=None, sa_column=Column(Integer, ForeignKey("users.id"), nullable=True, index=True))
     title: str = Field(sa_column=Column(String(200), nullable=False))
     description: str = Field(sa_column=Column(Text, nullable=False))
     status: TicketStatus = Field(
