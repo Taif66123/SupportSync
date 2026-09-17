@@ -14,6 +14,12 @@ from app.core.errors import RateLimited
 from app.modules.auth.dependencies import get_current_user
 from app.modules.users.models import User
 
+# The chat-send bucket is shared by the REST twin and WS frames — one home for the
+# numbers so they can never diverge.
+CHAT_SEND_BUCKET = "chat-send"
+CHAT_SEND_LIMIT = 30
+CHAT_SEND_WINDOW_SECONDS = 60
+
 
 def _client_ip(request: Request) -> str:
     # Direct socket address: there is no trusted proxy in this deployment, so

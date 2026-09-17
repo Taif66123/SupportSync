@@ -158,8 +158,8 @@ async def test_rate_limit_fails_open_without_redis(monkeypatch, caplog):
 def test_bus_publish_fails_open_without_redis(monkeypatch, clean_hub, caplog):
     """A Redis outage never breaks delivery to this worker's own streams."""
     ratelimit.reset_outage_flag()
-    bus_reset = bus._logged_outage
-    bus._logged_outage = True  # silence the once-outage log for this test
+    bus_silenced = bus._outage._done
+    bus._outage._done = True  # silence the once-outage log for this test
 
     class Unreachable:
         async def publish(self, *_a, **_kw):
@@ -181,7 +181,7 @@ def test_bus_publish_fails_open_without_redis(monkeypatch, clean_hub, caplog):
         loop.run_until_complete(run())
     finally:
         bus._loop = None
-        bus._logged_outage = bus_reset
+        bus._outage._done = bus_silenced
         loop.close()
 
 

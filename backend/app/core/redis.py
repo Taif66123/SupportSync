@@ -14,6 +14,7 @@ then callers skip Redis instantly instead of paying the dial on every request.
 """
 
 import contextlib
+import logging
 import time
 from collections.abc import AsyncIterator
 from functools import lru_cache
@@ -100,6 +101,29 @@ class _Breaker:
 _breaker = _Breaker()
 
 
+class OutageLog:
+    """Logs a message once per outage, never once per event/request.
+
+    Each Redis surface (rate limiting, the notification bus) owns an instance;
+    `reset()` re-arms it — fresh listener start, or tests asserting the
+    once-per-outage behavior.
+    """
+
+    __slots__ = ("_done",)
+
+    def __init__(self) -> None:
+        self._done = False
+
+    def warn(self, logger: logging.Logger, message: str) -> None:
+        if self._done:
+            return
+        self._done = True
+        logger.warning(message)
+
+    def reset(self) -> None:
+        self._done = False
+
+
 def redis_ok() -> bool:
     """True while Redis is considered healthy. False = skip Redis entirely (no
 dial, no wait) and fail open, until the cooldown expires and a probe dials."""
@@ -118,6 +142,7 @@ def reset_breaker() -> None:
 
 __all__ = [
     "CHANNEL",
+    "OutageLog",
     "AsyncPubSub",
     "get_redis_client",
     "redis_key",

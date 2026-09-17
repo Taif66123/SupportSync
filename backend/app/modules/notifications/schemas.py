@@ -16,14 +16,6 @@ class Notification(BaseModel):
     payload: dict
 
 
-class NotificationOut(BaseModel):
-    """The SSE wire shape (`data:` line): event + payload, `at` ISO-8601 UTC."""
-
-    type: str
-    at: datetime
-    payload: dict
-
-
 class NotificationEnvelope(BaseModel):
     """Internal pub/sub frame between workers (never exposed to clients).
 

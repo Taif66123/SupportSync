@@ -30,7 +30,7 @@ import logging
 import uuid
 
 from app.core import redis as redis_module
-from app.core.redis import CHANNEL, redis_ok, trip_breaker
+from app.core.redis import CHANNEL, OutageLog, redis_ok, trip_breaker
 from app.modules.notifications.hub import hub
 from app.modules.notifications.schemas import Notification, NotificationEnvelope
 
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 _task: asyncio.Task | None = None
 _loop: asyncio.AbstractEventLoop | None = None
 _origin: str = uuid.uuid4().hex  # this process's identity on the channel
-_logged_outage = False
+_outage = OutageLog()
 
 
 def publish(recipients: frozenset[int] | set[int], notification: Notification) -> None:
@@ -77,9 +77,9 @@ def _log_publish_failure(future: asyncio.Future) -> None:
 
 async def start() -> None:
     """Capture the main loop and spawn this worker's listener task (app lifespan)."""
-    global _task, _loop, _logged_outage
+    global _task, _loop
     _loop = asyncio.get_running_loop()
-    _logged_outage = False
+    _outage.reset()
     if _task is None or _task.done():
         _task = asyncio.create_task(_listen())
 
@@ -139,7 +139,4 @@ async def _listen() -> None:
 
 
 def _log_outage() -> None:
-    global _logged_outage
-    if not _logged_outage:
-        logger.warning("Redis unreachable — notification fan-out degraded to local delivery (fail-open)")
-        _logged_outage = True
+    _outage.warn(logger, "Redis unreachable — notification fan-out degraded to local delivery (fail-open)")
