@@ -9,7 +9,7 @@ Written 2026-09-16. Self-contained: everything a fresh session (human or LLM) ne
 Planned milestones (full roadmap in `docs/milestones.md`):
 - **M1 (✅ DONE — 68/68 tests green):** auth + users + tickets CRUD/lifecycle. Quality review pass complete.
 - **M2 (✅ DONE — 94/94 tests green):** per-ticket WebSocket chat: instant delivery, REST history + REST post, typing indicators, read receipts, buffered pre-assignment messages, admin read-only, closed = read-only. M2 is feature-complete per `docs/milestones.md`.
-- M3: SSE notifications (Redis enters here). M4: background email, Docker packaging, CI.
+- **M3 Phase A (✅ DONE — 107/107 tests green):** SSE live notifications, in-process hub, commit-gated emissions. Phase B (Redis pub/sub + rate limiting) remains.
 
 ## 2. Process that produced this design (user-requested workflow)
 
@@ -39,7 +39,9 @@ All skills are installed in `.agents/skills/` (also mirrored in `.claude/skills/
 
 **Chat (M2, decided during M2 grilling):** scope = core chat (messages, instant delivery, history) + typing indicators; read receipts still deferred. Sending on a **closed** ticket → 403/`error.forbidden`, but history stays readable — closed is terminal (ADR 0001) yet not erased. Pre-assignment sends are allowed (buffered). WS auth = `?token=<access token>` query param (browsers can't set headers on the handshake), resolved **before** `accept()` with close code 1008 so an invisible ticket is indistinguishable from a nonexistent one. WS protocol (typed pydantic frames in `chat/schemas.py` — the protocol's single source of truth): client → `message.send{body}` / `typing.start` / `read.up-to{message_id}`; server → `connect.ack{can_send}` / `message.new{message}` / `typing.start{user_id}` (to the room except the typist; ephemeral, never persisted) / `read.receipt{user_id,message_id}` (to the whole room incl. the reader) / `error{code,message}`. Typing authorization = exactly the send rules (on a closed ticket nobody may type either). Read receipts: per-participant marker in `ticket_read_states` (one row per ticket×user, monotonic — never moves backwards; a repeat/backwards read is a silent no-op with no broadcast); receipts use the send rules (participants only, admins never generate them); a receipt for a message of another ticket → `not_found`; REST `GET /tickets/{id}/messages/read-states` serves the markers (read-authorized). Migration 0003 = `ticket_read_states`. A REST `POST /tickets/{id}/messages` mirrors socket sends (retries, clients without a live socket); `GET /tickets/{id}/messages` = paginated history, oldest first. `chat/policy.py` is a separate declarative table (never imports tickets policy — milestone boundary). WS connections own their transaction: **commit per message frame** (`session.commit()` in the WS handler is intentional and is the codebase's only direct commit).
 
-**Deliberately dropped/deferred:** Redis rate limiting (user decision — no Redis until M3), `TicketEvent` table (YAGNI; M2 chat gets its own Message table), CI/Jenkinsfile + backend Dockerfile (M4), frontend, cursor pagination (offset is fine).
+**Notifications (M3 Phase A, decided during M3 grilling):** scope phased — Phase A = SSE core (built), Phase B = Redis pub/sub fan-out + the deferred rate limiting. Notifications are **ephemeral push** (user decision): no notifications table, no replay — offline clients catch up by fetching current state; the `TicketEvent` idea stays dead (YAGNI). Recipients come from `notifications/policy.py` (declarative table, same discipline as the other policies): `ticket.created` → all **active** Agents; `ticket.updated` / `message.created` → the conversation participants (Customer + assigned Agent); Admins observe, never get notified; the **actor is always subtracted**. Emissions are **commit-gated**: `notify()` resolves recipients once at queue time (with the real ticket), stashes `(recipients, notification)` on `session.info`, and SQLAlchemy `after_commit` publishes to the hub — a subscriber never hears about data it can't fetch; `after_rollback` discards. Emissions are fire-and-forget: notification failures must never fail the business action. `GET /api/v1/notifications/stream` = SSE, auth = Bearer header **or** `?token=` (EventSource can't set headers), 15 s keep-alive comment frames, media type `text/event-stream`, frame = `event: <type>` + `data: {type, at, payload}`.
+
+**Deliberately dropped/deferred:** Redis rate limiting + pub/sub fan-out (M3 Phase B), `TicketEvent` table (YAGNI; twice-dead), CI/Jenkinsfile + backend Dockerfile (M4), frontend, cursor pagination (offset is fine).
 
 **Architecture (ADR 0002):** modular monolith. Modules in `backend/app/modules/<name>/` each layered Router → Service → Repository. Routers = HTTP only; services = business rules + permissions; repositories = only DB code; no generic BaseRepository. Cross-module: models + schemas importable, services callable, **repositories private**. All ticket permission/visibility logic lives in ONE declarative table `tickets/policy.py` — never add role/status if-branches elsewhere; extend the table.
 
@@ -73,6 +75,9 @@ C:\Github\SupportSync\
     │   ├── modules/auth/        # models(RefreshToken), schemas, repository, service(register/login/refresh-rotate/logout), dependencies(get_current_user, require_role), router
     │   ├── modules/users/       # models(User+Role), schemas, repository, service, router (/users, /users/me, role+status PATCH)
     │   ├── modules/tickets/     # models(Ticket+enums), schemas, policy (THE rules table: ensure/scoped/get_visible), repository (incl. atomic transition()), service (act/change_priority), router
+    │   ├── modules/notifications/   # schemas (typed SSE events), policy (recipients table),
+    │   │                            # hub (in-process fan-out), service (commit-gated emitter),
+    │   │                            # router (GET /notifications/stream, SSE)
     │   ├── modules/chat/         # models(Message), schemas, policy (own rules table), repository,
     │   │                         # service, connections (in-process per-ticket room registry),
     │   │                         # router (REST history+post, WS /tickets/{id}/ws)
@@ -84,13 +89,18 @@ C:\Github\SupportSync\
         ├── test_auth.py         # register/login/me, dup email 409, rotation+reuse-rejection, logout, deactivation, 401s
         ├── test_users.py        # RBAC 403s, staff create (customer-role 422), list/filter, self-guards, last-admin invariant
         ├── test_tickets.py      # create/visibility 404s, queue+claim, claim race (repo-level), assign, lifecycle, close semantics, priority, pagination/filters, mine
+        ├── test_notifications.py # stream auth (header/query-token), SSE frame shape (bounded async unit),
+        │                         # commit-gating + rollback discard, recipients per notification type,
+        │                         # actor subtraction, multi-stream fan-out, deactivated agents, admins never
         └── test_chat.py         # REST history/post authorization, closed read-only, WS auth, participants,
                                  # admin read-only, closed read-only (connection stays open), buffering, malformed frames
 ```
 
 ## 5. Current state & test status
 
-**94/94 tests pass** on sqlite AND on real Postgres (`TEST_DATABASE_URL=postgresql+psycopg://supportsync:supportsync@localhost:5433/supportsync_test` — dedicated test DB, created via `CREATE DATABASE supportsync_test;`). Migrations 0002 (messages) + 0003 (ticket_read_states) applied to the live dev Postgres; `alembic check` reports zero drift. M2 changes are **not yet committed**.
+**107/107 tests pass** on sqlite AND on real Postgres (`TEST_DATABASE_URL=postgresql+psycopg://supportsync:supportsync@localhost:5433/supportsync_test` — dedicated test DB, created via `CREATE DATABASE supportsync_test;`). Migrations 0002 (messages) + 0003 (ticket_read_states) applied to the live dev Postgres; `alembic check` reports zero drift. M2 is committed (`9ec8612` + docs `0698d3a`); the M3 Phase A diff is **not yet committed**.
+
+**M3 Phase A testing notes:** the SSE stream endpoint cannot be tested over the TestClient HTTP transport — starlette 1.6 runs an app call to completion, so an infinite stream blocks forever. Tests invoke the endpoint coroutine directly (auth + response shape) and exercise `_stream()` as a bounded async unit (connected frame, event frame, keep-alive, unsubscribe). Emission gating is tested via the session-event seam: `session.commit()` in tests plays the role of `get_session`'s commit-on-success in production.
 
 **M2 quality pass ran** (`code-review` two-axis + `thermo-nuclear-code-quality-review`) and all findings were fixed: dead code deleted (unused frame-model placeholders, an unused `asyncio.Lock`, an uncalled repository count helper), the wire protocol is now typed pydantic models in `chat/schemas.py` (used at every send/broadcast site — no more hand-built frame dicts), and the middle-man `service.get_ticket_for_chat` wrapper was removed (router calls `policy.get_chat` directly). Commit-per-frame in the WS handler was reviewed and accepted as a justified deviation from "commit once per request" (a WS connection is not a request).
 
@@ -142,7 +152,7 @@ git status && git add <files> && git commit -m "feat: M2 core — per-ticket Web
 
 Quality review already done this session. Next quality pass: run `code-review` + `thermo-nuclear-code-quality-review` skills after any significant new diff.
 
-**Next entry points:** (a) commit the M2 diff (feature-complete, reviewed, 94/94 on both engines) and run a live WS smoke test against uvicorn like M1 got. (b) **M3 — Live Notifications** per `docs/milestones.md`: SSE long-lived HTTP, Redis pub/sub fan-out across workers (the in-process `chat/connections.py` registry is explicitly single-process — M3 replaces the cross-process gap), plus the deferred Redis rate limiting.
+**Next entry points:** (a) commit the M3 Phase A diff and run a live smoke test (uvicorn + two terminals: one streaming `/notifications/stream`, one creating a ticket). (b) **M3 Phase B — Redis**: `docker-compose` gains redis:7-alpine; the in-process hub (`notifications/hub.py`) and chat registry (`chat/connections.py`) are both explicitly single-process — pub/sub fan-out replaces the cross-process gap with the same emit/stream contracts; then the deferred rate limiting on auth + chat-send endpoints.
 
 ## 7. Quality review summary (this session)
 
