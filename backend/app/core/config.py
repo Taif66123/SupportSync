@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,17 +14,16 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
 
-    cors_origins: list[str] = Field(default_factory=list)
+    # Kept as a raw comma-separated string: pydantic-settings JSON-parses complex
+    # types from dotenv, which a plain "a,b" list would crash on.
+    cors_origins: str = ""
 
     admin_email: str = "admin@supportsflow.local"
     admin_password: SecretStr = SecretStr("admin123!")
 
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def _split_origins(cls, value: object) -> object:
-        if isinstance(value, str):
-            return [origin.strip() for origin in value.split(",") if origin.strip()]
-        return value
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
 
 @lru_cache
