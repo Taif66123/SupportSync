@@ -6,6 +6,7 @@ from app.core.errors import Conflict, NotFound
 from app.modules.tickets import policy, repository
 from app.modules.tickets.models import Ticket, TicketPriority, TicketStatus
 from app.modules.tickets.policy import Action
+from app.modules.emails import tasks as emails
 from app.modules.notifications import service as notifications
 from app.modules.tickets.schemas import TicketFilter
 from app.modules.users import service as users
@@ -29,6 +30,8 @@ def create_ticket(session: Session, *, customer: User, title: str, description: 
             "status": ticket.status.value if hasattr(ticket.status, "value") else str(ticket.status),
         },
     )
+    # Confirmation email to the customer, commit-gated like notifications (ADR 0006).
+    emails.queue_confirmation(session, ticket=ticket, to=customer.email)
     return ticket
 
 

@@ -26,6 +26,16 @@ class Settings(BaseSettings):
     # (tests, single-worker deployments) skips the listener dial entirely.
     notifications_bus_enabled: bool = True
 
+    # Confirmation emails (M4, ADR 0006): Celery on the Redis broker. Console
+    # "delivery" logs the email in dev; smtp needs the host/from settings.
+    emails_enabled: bool = True
+    email_backend: str = "console"  # console | smtp
+    email_from: str = "supportsync@example.com"
+    email_smtp_host: str = "localhost"
+    email_smtp_port: int = 25
+    email_smtp_user: str = ""
+    email_smtp_password: SecretStr = SecretStr("")
+
     admin_email: str = "admin@example.com"
     admin_password: SecretStr = SecretStr("admin123!")
 
