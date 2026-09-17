@@ -44,6 +44,13 @@ def get_agent(session: Session, user_id: int) -> User | None:
     return user
 
 
+def list_active_ids_by_role(session: Session, role: Role) -> list[int]:
+    """Ids of all active users with `role` — notification subscriptions ("every active
+    Agent hears about a new ticket") resolve through the users module's own service;
+    no other module reaches into user tables."""
+    return repository.list_active_ids_by_role(session, role)
+
+
 def list_users(session: Session, filters: UserFilter, *, limit: int, offset: int) -> tuple[list[User], int]:
     return repository.list_users(
         session,

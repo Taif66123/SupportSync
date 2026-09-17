@@ -19,6 +19,12 @@ def get(session: Session, user_id: int) -> User | None:
     return session.get(User, user_id)
 
 
+def list_active_ids_by_role(session: Session, role: Role) -> list[int]:
+    return list(
+        session.exec(select(User.id).where(User.role == role, User.is_active == True))  # noqa: E712
+    )
+
+
 def list_users(
     session: Session,
     *,

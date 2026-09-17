@@ -33,6 +33,26 @@ def get_current_user(
     return user
 
 
+def get_optional_credentials(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+) -> HTTPAuthorizationCredentials | None:
+    """Bearer credentials if present, None otherwise — for endpoints (SSE) that
+    accept header-or-query-token auth instead of raising on a missing header."""
+    return credentials
+
+
+def authenticate_token(session: Session, token: str) -> User | None:
+    """Token auth for handshake-style endpoints (WebSocket /?token=, SSE) where
+    browsers cannot always set headers. Returns None instead of raising; callers
+    decide the rejection shape (WS close 1008, HTTP 401, …)."""
+    try:
+        payload = decode_access_token(token)
+        user_id = int(payload["sub"])
+    except (jwt.InvalidTokenError, KeyError, ValueError):
+        return None
+    return users.get_active(session, user_id)
+
+
 def require_role(*allowed: Role):
     def checker(user: Annotated[User, Depends(get_current_user)]) -> User:
         if user.role not in allowed:

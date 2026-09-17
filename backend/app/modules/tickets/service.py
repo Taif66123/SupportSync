@@ -6,6 +6,7 @@ from app.core.errors import Conflict, NotFound
 from app.modules.tickets import policy, repository
 from app.modules.tickets.models import Ticket, TicketPriority, TicketStatus
 from app.modules.tickets.policy import Action
+from app.modules.notifications import service as notifications
 from app.modules.tickets.schemas import TicketFilter
 from app.modules.users import service as users
 from app.modules.users.models import User
@@ -13,7 +14,22 @@ from app.modules.users.models import User
 
 def create_ticket(session: Session, *, customer: User, title: str, description: str, priority: TicketPriority) -> Ticket:
     ticket = Ticket(customer_id=customer.id, title=title.strip(), description=description, priority=priority)
-    return repository.create(session, ticket)
+    ticket = repository.create(session, ticket)
+    # Every active Agent subscribes to new Queue tickets (notifications/policy.py).
+    notifications.notify(
+        session,
+        actor=customer,
+        ticket=ticket,
+        notification_type="ticket.created",
+        payload={
+            "ticket_id": ticket.id,
+            "title": ticket.title,
+            "priority": ticket.priority.value if hasattr(ticket.priority, "value") else str(ticket.priority),
+            "customer_id": ticket.customer_id,
+            "status": ticket.status.value if hasattr(ticket.status, "value") else str(ticket.status),
+        },
+    )
+    return ticket
 
 
 def list_tickets(
@@ -75,6 +91,20 @@ def act(session: Session, user: User, action: Action, ticket_id: int, *, assigne
     if not moved:
         raise Conflict("ticket changed state concurrently, try again")
     session.refresh(ticket)
+    if rule.to_status is not None:  # a real status transition — the milestone's "status update"
+        notifications.notify(
+            session,
+            actor=user,
+            ticket=ticket,
+            notification_type="ticket.updated",
+            payload={
+                "ticket_id": ticket.id,
+                "title": ticket.title,
+                "status": ticket.status.value if hasattr(ticket.status, "value") else str(ticket.status),
+                "agent_id": ticket.agent_id,
+                "closed_at": ticket.closed_at.isoformat() if ticket.closed_at else None,
+            },
+        )
     return ticket
 
 

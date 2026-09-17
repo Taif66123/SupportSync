@@ -3,6 +3,7 @@ from sqlmodel import Session
 from app.core.errors import NotFound
 from app.modules.chat import policy, repository
 from app.modules.chat.models import Message
+from app.modules.notifications import service as notifications
 from app.modules.tickets.models import Ticket
 from app.modules.users.models import User
 
@@ -18,7 +19,22 @@ def post(session: Session, user: User, ticket: Ticket, *, body: str) -> Message:
     (plus read-only Admins) ever see them (milestone boundary)."""
     policy.ensure(ticket, user, "send")
     message = Message(ticket_id=ticket.id, sender_id=user.id, body=body)
-    return repository.create(session, message)
+    message = repository.create(session, message)
+    # The conversation's other participant hears about it (notifications/policy.py).
+    notifications.notify(
+        session,
+        actor=user,
+        ticket=ticket,
+        notification_type="message.created",
+        payload={
+            "ticket_id": ticket.id,
+            "message_id": message.id,
+            "sender_id": message.sender_id,
+            "body": message.body,
+            "created_at": message.created_at.isoformat() if message.created_at else None,
+        },
+    )
+    return message
 
 
 def mark_read(session: Session, user: User, ticket: Ticket, message_id: int) -> Message | None:
