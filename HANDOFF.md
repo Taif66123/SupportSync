@@ -4,7 +4,7 @@ Written 2026-09-16. Self-contained: everything a fresh session (human or LLM) ne
 
 ## 1. What this project is
 
-**SupportSync** — a small customer-support application backend: a Customer creates a support Ticket and communicates with a Support Agent in real time. Backend only for now (no frontend yet). Stack: **FastAPI + PostgreSQL + SQLModel (SQLAlchemy 2) + Alembic + PyJWT + bcrypt + pytest + Docker (compose for infra)**. Environment: Windows, Git Bash, Python 3.14.7, Docker 29.7.2. Working dir: `C:\Github\SupportSync` (**git repo on `master`; commits: `549b48b` M1 complete, `0bfe32c` CORS dotenv fix**).
+**SupportSync** — a small customer-support application backend: a Customer creates a support Ticket and communicates with a Support Agent in real time. Backend only for now (no frontend yet). Stack: **FastAPI + PostgreSQL + SQLModel (SQLAlchemy 2) + Alembic + PyJWT + bcrypt + pytest + Docker (compose for infra) + Redis (M3: fan-out bridge + rate limiting)**. Environment: Windows, Git Bash, Python 3.14.7, Docker 29.7.2. Working dir: `C:\Github\SupportSync` (**git repo on `master`; committed through M3 — SHA map in §5**).
 
 Planned milestones (full roadmap in `docs/milestones.md`):
 - **M1 (✅ DONE — 68/68 tests green):** auth + users + tickets CRUD/lifecycle. Quality review pass complete.
@@ -17,7 +17,7 @@ Planned milestones (full roadmap in `docs/milestones.md`):
 2. **Refinement check** with Matt Pocock's `codebase-design` skill + **Cursor's `thermo-nuclear-code-quality-review`** skill → 6 findings folded into the design (see §4).
 3. **Design-it-twice** (from `codebase-design`) on the policy interface → chose "ergonomic minimal" shape: `ensure() / scoped() / get_visible()` over a declarative rules table; explicitly rejected a rule-engine/registry design as a hypothetical seam.
 
-All skills are installed in `.agents/skills/` (also mirrored in `.claude/skills/`): `grilling`, `grill-with-docs`, `domain-modeling`, `codebase-design`, `code-review`, `thermo-nuclear-code-quality-review`, `setup-matt-pocock-skills`. Read `SKILL.md` inside each before claiming to "use" them.
+All skills are installed in `.agents/skills/` (also mirrored in `.claude/skills/`): `grilling`, `grill-with-docs`, `domain-modeling`, `codebase-design`, `code-review`, `thermo-nuclear-code-quality-review`, `database-schema-designer`, `setup-matt-pocock-skills`. Read `SKILL.md` inside each before claiming to "use" them.
 
 ## 3. Locked design decisions (do not re-litigate; ADRs are authoritative)
 
@@ -57,6 +57,7 @@ C:\Github\SupportSync\
 ├── .env.example, .gitignore, .dockerignore
 ├── docs/
 │   ├── milestones.md            # M1–M4 roadmap
+│   ├── database-design.md       # DB doc of record (Mermaid ERD, table specs, ADR refs)
 │   └── adr/0001–0004            # immutable tickets+terminal closed; modular monolith
 │                                # rotating refresh tokens; deactivate-only
 ├── .agents/skills/ + .claude/skills/   # installed agent skills (see §2)
@@ -76,12 +77,11 @@ C:\Github\SupportSync\
     │   ├── modules/users/       # models(User+Role), schemas, repository, service, router (/users, /users/me, role+status PATCH)
     │   ├── modules/tickets/     # models(Ticket+enums), schemas, policy (THE rules table: ensure/scoped/get_visible), repository (incl. atomic transition()), service (act/change_priority), router
     │   ├── modules/notifications/   # schemas (typed SSE events), policy (recipients table),
-    │   │                            # hub (in-process fan-out), service (commit-gated emitter),
-    │   │                            # router (GET /notifications/stream, SSE)
-    │   ├── modules/chat/         # models(Message), schemas, policy (own rules table), repository,
+    │   │                            # hub (in-process fan-out), bus (Redis bridge + self-healing listener),
+    │   │                            # service (commit-gated emitter), router (SSE stream)
+    │   ├── modules/chat/         # models(Message, TicketReadState), schemas, policy (own rules table), repository,
     │   │                         # service, connections (in-process per-ticket room registry),
     │   │                         # router (REST history+post, WS /tickets/{id}/ws)
-    │   ├── modules/notifications/   # M3 placeholder docstring only
     │   └── seeds/demo.py        # idempotent demo data (python -m app.seeds.demo)
     └── tests/
         ├── conftest.py          # sqlite default (TEST_DATABASE_URL override), transaction-per-test rollback, client+token fixtures
@@ -92,13 +92,15 @@ C:\Github\SupportSync\
         ├── test_notifications.py # stream auth (header/query-token), SSE frame shape (bounded async unit),
         │                         # commit-gating + rollback discard, recipients per notification type,
         │                         # actor subtraction, multi-stream fan-out, deactivated agents, admins never
-        └── test_chat.py         # REST history/post authorization, closed read-only, WS auth, participants,
-                                 # admin read-only, closed read-only (connection stays open), buffering, malformed frames
+        ├── test_chat.py         # REST history/post authorization, closed read-only, WS auth, participants,
+        │                         # admin read-only, closed read-only (connection stays open), buffering, malformed frames
+        └── test_phase_b.py      # Redis bridge contract (fakeredis): envelopes, origin dedupe, fail-open,
+                                  # circuit breaker trip/probe, rate-limit 429 integration
 ```
 
 ## 5. Current state & test status
 
-**107/107 tests pass** on sqlite AND on real Postgres (`TEST_DATABASE_URL=postgresql+psycopg://supportsync:supportsync@localhost:5433/supportsync_test` — dedicated test DB, created via `CREATE DATABASE supportsync_test;`). Migrations 0002 (messages) + 0003 (ticket_read_states) applied to the live dev Postgres; `alembic check` reports zero drift. M2 is committed (`9ec8612` + docs `0698d3a`); the M3 Phase A diff is **not yet committed**.
+**118/118 tests pass** on sqlite AND on real Postgres (`TEST_DATABASE_URL=postgresql+psycopg://supportsync:supportsync@localhost:5433/supportsync_test` — dedicated test DB, created via `CREATE DATABASE supportsync_test;`). All migrations applied to the live dev Postgres; `alembic check` reports zero drift. Committed: M1 `549b48b`, M2 `9ec8612` + docs `0698d3a`, M3 Phase A `b714bde` + docs `25a23c7`, M3 Phase B `fd606da` + docs `59b390f`.
 
 **M3 Phase A testing notes:** the SSE stream endpoint cannot be tested over the TestClient HTTP transport — starlette 1.6 runs an app call to completion, so an infinite stream blocks forever. Tests invoke the endpoint coroutine directly (auth + response shape) and exercise `_stream()` as a bounded async unit (connected frame, event frame, keep-alive, unsubscribe). Emission gating is tested via the session-event seam: `session.commit()` in tests plays the role of `get_session`'s commit-on-success in production.
 
@@ -143,16 +145,16 @@ cd backend
 alembic upgrade head                     # applies 0001 to Postgres
 python -m app.seeds.demo                 # demo data
 uvicorn app.main:app --reload            # docs at http://127.0.0.1:8000/docs
-$env:TEST_DATABASE_URL="postgresql+psycopg://supportsync:supportsync@localhost:5432/supportsync"
+$env:TEST_DATABASE_URL="postgresql+psycopg://supportsync:supportsync@localhost:5433/supportsync_test"
 & '.venv/Scripts/python.exe' -m pytest
 
-# Git (repo initialized; M1 committed at 549b48b — M2 diff not yet committed):
-git status && git add <files> && git commit -m "feat: M2 core — per-ticket WebSocket chat (86 tests green)"
+# Git (everything through M3 is committed — SHA map in §5):
+git status && git add <files> && git commit -m "feat: <what> (<N> tests green)"
 ```
 
 Quality review already done this session. Next quality pass: run `code-review` + `thermo-nuclear-code-quality-review` skills after any significant new diff.
 
-**Next entry points:** (a) commit the M3 Phase B diff and run a live two-terminal smoke test (uvicorn: one terminal streaming `/notifications/stream`, another creating a ticket — also the first live check of the Redis bridge with `docker compose up -d`). (b) **M4 — Frontend** per `docs/milestones.md`.
+**Next entry points:** (a) the live two-terminal smoke test (uvicorn: one terminal streaming `/notifications/stream`, another creating a ticket — also the first live check of the Redis bridge with `docker compose up -d`). (b) **M4 — Frontend** per `docs/milestones.md` (the harness is current: AGENTS.md/CLAUDE.md through M3, `docs/database-design.md` is the DB doc of record).
 
 ## 7. Quality review summary (this session)
 
