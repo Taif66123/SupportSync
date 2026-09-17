@@ -4,7 +4,7 @@ Written 2026-09-16. Self-contained: everything a fresh session (human or LLM) ne
 
 ## 1. What this project is
 
-**SupportSync** — a small customer-support application backend: a Customer creates a support Ticket and communicates with a Support Agent in real time. Backend only for now (no frontend yet). Stack: **FastAPI + PostgreSQL + SQLModel (SQLAlchemy 2) + Alembic + PyJWT + bcrypt + pytest + Docker (compose for infra)**. Environment: Windows, Git Bash, Python 3.14.7, Docker 29.7.2. Working dir: `C:\Github\SupportSync` (**not yet a git repo — `git init` + first commit still to do**).
+**SupportSync** — a small customer-support application backend: a Customer creates a support Ticket and communicates with a Support Agent in real time. Backend only for now (no frontend yet). Stack: **FastAPI + PostgreSQL + SQLModel (SQLAlchemy 2) + Alembic + PyJWT + bcrypt + pytest + Docker (compose for infra)**. Environment: Windows, Git Bash, Python 3.14.7, Docker 29.7.2. Working dir: `C:\Github\SupportSync` (**git repo on `master`; commits: `549b48b` M1 complete, `0bfe32c` CORS dotenv fix**).
 
 Planned milestones (full roadmap in `docs/milestones.md`):
 - **M1 (✅ DONE — 68/68 tests green):** auth + users + tickets CRUD/lifecycle. Quality review pass complete.
@@ -80,12 +80,14 @@ C:\Github\SupportSync\
 
 ## 5. Current state & test status
 
-**68/68 tests pass** (confirmed this session, twice — before and after quality-review fixes).
+**68/68 tests pass** (re-verified after the CORS fix below, running from `backend/` with `.env` present).
 
-Two code changes made this session (from the thermo-nuclear quality review):
+Two code changes made in the quality-review session:
 
 1. **`users/service.set_active()`** now revokes all refresh tokens internally when deactivating a user. Previously this was in the router (wrong layer — business invariant). Router is now a one-liner.
 2. **Deleted redundant pre-check** in `tickets/service.act()` — the in-memory `requires_unassigned` check was a weaker, racy duplicate of the DB-level atomic `transition()` guard.
+
+**CORS dotenv fix (commit 0bfe32c):** `CORS_ORIGINS` in `.env` as a comma-separated string crashed Settings at import — pydantic-settings JSON-parses complex fields (`list[str]`) from dotenv *before* validators run. `cors_origins` is now a plain `str` with a `cors_origin_list` property; `main.py` uses the property. Note for M2+: any new env-driven list/complex setting must follow the same pattern (raw string + parsed property). The earlier "68/68 twice" claim ran pytest from a cwd where `.env` was absent, which masked this — always run pytest from `backend/`.
 
 Already fixed in prior dev (don't regress): naive-vs-aware datetimes on sqlite (always compare via `as_utc` from `app/utils/time.py`), test JWT secret must be ≥32 bytes, `email-validator` in requirements.txt.
 
