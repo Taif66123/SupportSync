@@ -13,8 +13,8 @@ from app.modules.users import service as users
 from app.modules.users.models import Role, User
 
 AGENTS = [
-    ("maya.chen@supportsflow.local", "Maya Chen"),
-    ("omar.hassan@supportsflow.local", "Omar Hassan"),
+    ("maya.chen@example.com", "Maya Chen"),
+    ("omar.hassan@example.com", "Omar Hassan"),
 ]
 CUSTOMERS = [
     ("lena@example.com", "Lena Fischer"),
@@ -25,7 +25,7 @@ TICKETS = [
     ("Billing shows duplicate charge", "I was charged twice for the September invoice.", TicketPriority.HIGH, 1, TicketStatus.IN_PROGRESS),
     ("Dark mode toggle missing", "Can't find the dark mode switch in settings.", TicketPriority.LOW, None, None),
     ("Export to CSV broken", "Export button spins forever and produces an empty file.", TicketPriority.MEDIUM, 1, TicketStatus.RESOLVED),
-    ("Feature request: keyboard shortcuts", "Would love shortcuts for the ticket queue.", TicketPriority.LOW, 2, TicketStatus.IN_PROGRESS),
+    ("Feature request: keyboard shortcuts", "Would love shortcuts for the ticket queue.", TicketPriority.LOW, 0, TicketStatus.IN_PROGRESS),
 ]
 
 

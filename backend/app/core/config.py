@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     # types from dotenv, which a plain "a,b" list would crash on.
     cors_origins: str = ""
 
-    admin_email: str = "admin@supportsflow.local"
+    admin_email: str = "admin@example.com"
     admin_password: SecretStr = SecretStr("admin123!")
 
     @property
