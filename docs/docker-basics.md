@@ -63,6 +63,23 @@ docker compose down -v   # ⚠ ALSO deletes the volume — full data wipe; then 
 | `port is already allocated` | 5433 taken | Change `POSTGRES_PORT` (root `.env`) + `DATABASE_URL` (backend `.env`) |
 | `Seed skipped` | Not an error — idempotent seeds | Nothing |
 
+## Reading the output — what healthy looks like
+
+Run the sequence top to bottom; each step has one green-light signal:
+
+| Command | Success looks like | Red flags |
+|---|---|---|
+| `docker ps` | Empty table header (no containers yet) | `error during connect` → Desktop not started |
+| `docker compose up -d` | `✔ Container supportsync-db-1  Started` | ✖ / red text (port taken, pull failed) |
+| `docker compose ps` | `Up 2 minutes (healthy)` + `0.0.0.0:5433->5432/tcp` | `(health: starting)` → wait; `Restarting`/`Exited` → logs |
+| `docker compose logs db` | ends with `database system is ready to accept connections` | `FATAL`/`PANIC`, same lines repeating forever |
+| `alembic upgrade head` | `Running upgrade -> 0001, ...` first time; **silence** afterwards | `sqlalchemy.exc.OperationalError` traceback → DB unreachable |
+| `python -m app.seeds.demo` | `Seeded: 1 admin ...` or `Seed skipped: admin already exists` (both fine) | Python traceback |
+| `uvicorn ... --reload` | `Application startup complete.` then `/docs` in browser | startup traceback (config/DB bug), `Address already in use` |
+| `pytest` | `68 passed, 2 warnings` — warnings are fine | `FAILED tests/...` lines |
+
+**HTTP status codes in the uvicorn log** (and /docs): 200/201 good · 401 auth (re-login) · 403 wrong role (expected) · 404 invisible-by-design or missing · 409 business rule correctly rejecting you · 422 malformed body (read `message`) · 500 real bug (copy traceback).
+
 ## Useful extras
 
 ```bash
