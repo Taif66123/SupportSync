@@ -80,6 +80,23 @@ Run the sequence top to bottom; each step has one green-light signal:
 
 **HTTP status codes in the uvicorn log** (and /docs): 200/201 good · 401 auth (re-login) · 403 wrong role (expected) · 404 invisible-by-design or missing · 409 business rule correctly rejecting you · 422 malformed body (read `message`) · 500 real bug (copy traceback).
 
+## Migrations (Alembic) — version control for the schema
+
+Models (`app/modules/**/models.py`) are the source of truth for what the schema *should be*; migration scripts (`migrations/versions/`) are the source of truth for *how we get there*. The DB tracks its position in a small `alembic_version` table — running `upgrade head` twice is safe (second run is a no-op).
+
+```bash
+# When you change a model (M2 will, for the Message table):
+alembic revision --autogenerate -m "describe the change"   # 1. generate draft by diffing models vs live DB
+#                                                          # 2. OPEN and REVIEW the generated file (autogenerate misses
+#                                                          #    renames — it sees drop+add; never apply unread)
+alembic upgrade head                                       # 3. apply
+alembic current                                            # which revision is this DB at?
+alembic history                                            # all revisions
+alembic downgrade -1                                       # undo last (dev only, careful with data)
+```
+
+Tests bypass this (`metadata.create_all` on throwaway DBs) — everything real (dev DB, CI, production) goes through Alembic.
+
 ## Useful extras
 
 ```bash
