@@ -80,7 +80,16 @@ C:\Github\SupportSync\
 
 ## 5. Current state & test status
 
-**68/68 tests pass** (re-verified after the CORS fix below, running from `backend/` with `.env` present).
+**68/68 tests pass** on sqlite AND on real Postgres (`TEST_DATABASE_URL=postgresql+psycopg://supportsync:supportsync@localhost:5433/supportsync_test` — dedicated test DB, created via `CREATE DATABASE supportsync_test;`).
+
+**Live Postgres smoke test passed end-to-end** (2026-09-17): `docker compose up -d` → `alembic upgrade head` → `python -m app.seeds.demo` → uvicorn boots → `/health` 200, `/docs` 200, login as seeded agent 200, agent ticket list shows Queue + assigned tickets.
+
+Environment-specific notes for THIS machine (HP EliteBook, Windows):
+- **Docker works now.** Earlier "Virtualization support not detected" was resolved by installing WSL 2.7.14 + Virtual Machine Platform (elevated) and rebooting. Hypervisor present, daemon live.
+- **Port 5433, not 5432**: a native Windows PostgreSQL 18 service (`postgresql-x64-18`, auto-start) occupies 5432 on this machine — do NOT stop it; other projects may use it. Root `.env` (gitignored) sets `POSTGRES_PORT=5433`; `backend/.env` DATABASE_URL points at `localhost:5433`. The backend `.env.example` template stays at 5432 (generic default).
+- `backend/.env` exists with a real JWT_SECRET and port 5433.
+
+**Integration bug found & fixed by the live smoke test (commit 584baec):** `EmailStr` (email-validator) rejects reserved/special-use domains like `.local` at the API boundary — seeded accounts using `@supportsflow.local` could register in seeds but never log in. All seed/demo/admin emails now use `@example.com` (IANA documentation domain, accepted by the validator). Seeds data also had an agent-index bug (index 2 with only 2 agents) — fixed. Lesson: seeds bypass API validation; anything seeded must be valid *through* the API too.
 
 Two code changes made in the quality-review session:
 
