@@ -3,6 +3,13 @@ import tempfile
 
 # Must be set before any app import — settings are read at import time.
 os.environ.setdefault("JWT_SECRET", "test-secret-key-for-pytest-only-0123456789abcdef")
+# Hermetic Redis: tests default to an unreachable port whose connection is refused
+# instantly (no timeout wait), exercising the fail-open paths. Set REDIS_URL in the
+# environment to run the suite against a live Redis instead. The cross-worker bus
+# stays off in tests: it needs a real Redis at startup, and its behavior is covered
+# by the direct async bus tests instead.
+os.environ.setdefault("REDIS_URL", "redis://127.0.0.1:9/0")
+os.environ.setdefault("NOTIFICATIONS_BUS_ENABLED", "false")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -14,11 +21,21 @@ import app.modules.chat.models  # noqa: F401,E402
 import app.modules.tickets.models  # noqa: F401,E402
 import app.modules.users.models  # noqa: F401,E402
 from app.core.database import get_session  # noqa: E402
+from app.core.redis import reset_breaker  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.modules.users import service as users_service  # noqa: E402
 from app.modules.users.models import Role  # noqa: E402
 
 API = "/api/v1"
+
+
+@pytest.fixture(autouse=True)
+def _fresh_redis_breaker():
+    """Every test starts with the Redis breaker healthy — a tripped breaker from an
+    earlier fail-open test must never leak into tests that expect real dials."""
+    reset_breaker()
+    yield
+    reset_breaker()
 
 
 @pytest.fixture(scope="session")

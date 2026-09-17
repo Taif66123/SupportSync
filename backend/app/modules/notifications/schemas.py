@@ -22,3 +22,17 @@ class NotificationOut(BaseModel):
     type: str
     at: datetime
     payload: dict
+
+
+class NotificationEnvelope(BaseModel):
+    """Internal pub/sub frame between workers (never exposed to clients).
+
+    Recipients ride with the notification because they are subscriptions, resolved
+    once at emit time; the cross-worker listener is a dumb pump with no DB access.
+    `origin` is the emitting worker's identity — listeners skip their own frames
+    (their local hub already delivered them).
+    """
+
+    recipients: list[int]
+    origin: str
+    notification: Notification

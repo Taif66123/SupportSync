@@ -7,6 +7,8 @@ from sqlmodel import Session
 
 from app.core.database import get_session
 from app.core.errors import AppError
+from app.core.rate_limit_dependencies import limit_per_user
+from app.core.ratelimit import check as rate_limit_check
 from app.core.security import decode_access_token
 from app.modules.auth.dependencies import get_current_user
 from app.modules.chat import policy, service
@@ -52,7 +54,8 @@ def history(
     )
 
 
-@router.post("/{ticket_id}/messages", status_code=201, response_model=MessageOut)
+@router.post("/{ticket_id}/messages", status_code=201, response_model=MessageOut,
+             dependencies=[Depends(limit_per_user("chat-send", limit=30, window_seconds=60))])
 def post_message(
     ticket_id: int,
     payload: MessageIn,
@@ -180,6 +183,11 @@ async def _handle_frame(
         message_in = MessageIn.model_validate(frame)
     except Exception:
         await _send(websocket, ErrorFrame(code="invalid_body", message="body must be 1..4000 characters"))
+        return
+
+    if not await rate_limit_check("chat-send", str(user.id), limit=30, window_seconds=60):
+        # Same bucket as the REST twin; the socket stays open, unlike HTTP's 429.
+        await _send(websocket, ErrorFrame(code="rate_limited", message="too many messages — slow down"))
         return
 
     try:

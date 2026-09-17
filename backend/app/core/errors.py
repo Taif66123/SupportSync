@@ -41,6 +41,11 @@ class Conflict(AppError):
     code = "conflict"
 
 
+class RateLimited(AppError):
+    status_code = 429
+    code = "rate_limited"
+
+
 async def app_error_handler(_: Request, exc: AppError) -> JSONResponse:
     return exc.to_response()
 

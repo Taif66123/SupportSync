@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, status
 from sqlmodel import Session
 
 from app.core.database import get_session
+from app.core.rate_limit_dependencies import limit_per_user
 from app.modules.auth.dependencies import get_current_user, require_role
 from app.modules.tickets import service
 from app.modules.tickets.models import Ticket, TicketPriority
@@ -21,7 +22,8 @@ from app.utils.pagination import LimitOffset, Page, limit_offset
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
 
-@router.post("", response_model=TicketOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=TicketOut, status_code=status.HTTP_201_CREATED,
+             dependencies=[Depends(limit_per_user("ticket-create", limit=10, window_seconds=60))])
 def create_ticket(
     data: TicketCreateIn,
     session: Annotated[Session, Depends(get_session)],

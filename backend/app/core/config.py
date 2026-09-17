@@ -18,6 +18,14 @@ class Settings(BaseSettings):
     # types from dotenv, which a plain "a,b" list would crash on.
     cors_origins: str = ""
 
+    # Redis (M3 Phase B): pub/sub fan-out + rate limiting. Fail-open everywhere —
+    # an unreachable Redis degrades delivery and skips limits, it never blocks work.
+    redis_url: str = "redis://localhost:6379/0"
+
+    # The cross-worker bus only makes sense with a reachable Redis; disabling it
+    # (tests, single-worker deployments) skips the listener dial entirely.
+    notifications_bus_enabled: bool = True
+
     admin_email: str = "admin@example.com"
     admin_password: SecretStr = SecretStr("admin123!")
 

@@ -4,7 +4,7 @@ from sqlalchemy import event
 from sqlmodel import Session
 
 from app.modules.notifications import policy
-from app.modules.notifications.hub import hub
+from app.modules.notifications.bus import publish as publish_notification
 from app.modules.notifications.policy import NotificationType
 from app.modules.notifications.schemas import Notification
 from app.modules.tickets.models import Ticket
@@ -38,7 +38,7 @@ def notify(
 def drain(session: Session) -> None:
     """Test seam: publish whatever is queued for this session without waiting for commit."""
     for recipients, notification in session.info.pop(_QUEUE_KEY, []):
-        hub.push_many(recipients, notification)
+        publish_notification(recipients, notification)
 
 
 def _arm_once(session: Session) -> None:
@@ -50,7 +50,7 @@ def _arm_once(session: Session) -> None:
 
 def _publish_queued(session: Session) -> None:
     for recipients, notification in session.info.pop(_QUEUE_KEY, []):
-        hub.push_many(recipients, notification)
+        publish_notification(recipients, notification)
 
 
 def _discard_queued(session: Session) -> None:

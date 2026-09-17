@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,7 +14,19 @@ from app.modules.users.router import router as users_router
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="SupportSync API", version="0.1.0")
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        # One cross-worker notification listener per process (M3 Phase B).
+        from app.modules.notifications import bus
+
+        if settings.notifications_bus_enabled:
+            await bus.start()
+            yield
+            await bus.stop()
+        else:
+            yield
+
+    app = FastAPI(title="SupportSync API", version="0.1.0", lifespan=lifespan)
 
     if settings.cors_origin_list:
         app.add_middleware(

@@ -16,7 +16,20 @@ services:
       timeout: 3s
       retries: 10
 
-  # Redis joins in M3 (SSE pub/sub) / M4 (background tasks).
+  # Redis joins the stack in M3 Phase B: pub/sub fan-out of live notifications
+  # across workers, plus the deferred rate limiting. Best-effort by design —
+  # the backend fails open when Redis is unreachable (see backend/app/core/redis.py).
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   # Backend and frontend containers are packaged with Docker in M4;
   # until then the backend runs locally via uvicorn (see README).
 
