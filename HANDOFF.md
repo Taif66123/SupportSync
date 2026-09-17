@@ -9,7 +9,7 @@ Written 2026-09-16. Self-contained: everything a fresh session (human or LLM) ne
 Planned milestones (full roadmap in `docs/milestones.md`):
 - **M1 (✅ DONE — 68/68 tests green):** auth + users + tickets CRUD/lifecycle. Quality review pass complete.
 - **M2 (✅ DONE — 94/94 tests green):** per-ticket WebSocket chat: instant delivery, REST history + REST post, typing indicators, read receipts, buffered pre-assignment messages, admin read-only, closed = read-only. M2 is feature-complete per `docs/milestones.md`.
-- **M3 Phase A (✅ DONE — 107/107 tests green):** SSE live notifications, in-process hub, commit-gated emissions. Phase B (Redis pub/sub + rate limiting) remains.
+- **M3 complete (✅ DONE — 118/118 tests green on sqlite + Postgres):** Phase A = SSE live notifications (commit-gated emissions, in-process hub); Phase B = Redis pub/sub bridge + fixed-window rate limiting, both fail-open behind a shared circuit breaker (`app/core/redis.py`: one failure → fail-open fast path for a 30 s cooldown, then a single probe dial; `stop_listener` is best-effort). The cross-worker bus is gated by `NOTIFICATIONS_BUS_ENABLED` (off in tests, on by default in prod — tests stay hermetic via `REDIS_URL=redis://127.0.0.1:9/0` conftest default).
 
 ## 2. Process that produced this design (user-requested workflow)
 
@@ -53,7 +53,7 @@ C:\Github\SupportSync\
 ├── CONTEXT.md                   # domain glossary (authoritative vocabulary)
 ├── README.md                    # quickstart, layout
 ├── HANDOFF.md                   # this file
-├── docker-compose.yml           # postgres:17-alpine only (redis deferred to M3)
+├── docker-compose.yml           # postgres:17-alpine + redis:7-alpine (M3 Phase B)
 ├── .env.example, .gitignore, .dockerignore
 ├── docs/
 │   ├── milestones.md            # M1–M4 roadmap
@@ -152,7 +152,7 @@ git status && git add <files> && git commit -m "feat: M2 core — per-ticket Web
 
 Quality review already done this session. Next quality pass: run `code-review` + `thermo-nuclear-code-quality-review` skills after any significant new diff.
 
-**Next entry points:** (a) commit the M3 Phase A diff and run a live smoke test (uvicorn + two terminals: one streaming `/notifications/stream`, one creating a ticket). (b) **M3 Phase B — Redis**: `docker-compose` gains redis:7-alpine; the in-process hub (`notifications/hub.py`) and chat registry (`chat/connections.py`) are both explicitly single-process — pub/sub fan-out replaces the cross-process gap with the same emit/stream contracts; then the deferred rate limiting on auth + chat-send endpoints.
+**Next entry points:** (a) commit the M3 Phase B diff and run a live two-terminal smoke test (uvicorn: one terminal streaming `/notifications/stream`, another creating a ticket — also the first live check of the Redis bridge with `docker compose up -d`). (b) **M4 — Frontend** per `docs/milestones.md`.
 
 ## 7. Quality review summary (this session)
 
